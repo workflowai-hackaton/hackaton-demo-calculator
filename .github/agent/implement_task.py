@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-GitHub Agent: Create Issue from Repository Dispatch Payload
-This script creates a GitHub issue based on agent task details.
+GitHub Agent: Create or Update Issue from Repository Dispatch Payload
+This script creates a new GitHub issue or updates an existing one.
 """
 
 import argparse
@@ -19,8 +19,6 @@ def set_output(name: str, value: str) -> None:
     if github_output:
         with open(github_output, "a", encoding="utf-8") as f:
             f.write(f"{name}={value}\n")
-    else:
-        print(f"Output: {name}={value}")
 
 
 def gh_api(
@@ -48,11 +46,8 @@ def gh_api(
             txt = resp.read().decode(charset)
             return resp.getcode(), json.loads(txt) if txt else {}
     except urllib.error.HTTPError as e:
-        err_txt = e.read().decode("utf-8", errors="replace")
-        print(f"❌ GitHub API error {e.code}: {err_txt}", file=sys.stderr)
         return e.code, None
-    except Exception as e:
-        print(f"❌ Request failed: {e}", file=sys.stderr)
+    except Exception:
         return 0, None
 
 
@@ -68,7 +63,6 @@ def format_acceptance_criteria(criteria: Any) -> str:
 
 def build_issue_body(payload: Dict[str, Any]) -> Tuple[str, str]:
     """Build issue title and body from payload."""
-    # Extract main fields
     task_id = payload.get("task_id", "N/A")
     title = payload.get("title") or f"Agent Task {task_id}".strip()
     summary = payload.get("summary") or "No summary provided."
@@ -78,7 +72,6 @@ def build_issue_body(payload: Dict[str, Any]) -> Tuple[str, str]:
     stack_hint = payload.get("stack_hint") or ""
     extra = payload.get("extra") or {}
     
-    # Build body sections
     lines = [
         f"**Task ID:** `{task_id}`",
         "",
@@ -105,7 +98,6 @@ def build_issue_body(payload: Dict[str, Any]) -> Tuple[str, str]:
     if "links" in extra:
         lines.append(f"- **Links:** {extra['links']}")
     
-    # Add additional context from extra
     for key, value in extra.items():
         if key not in ["related_issues", "links"]:
             lines.append(f"- **{key.replace('_', ' ').title()}:** {value}")
@@ -118,7 +110,7 @@ def build_issue_body(payload: Dict[str, Any]) -> Tuple[str, str]:
         "3. **Manual Implementation:** Review the requirements and create a PR with your changes",
         "",
         "## 📝 Notes",
-        "- This issue was created automatically by the agent workflow",
+        "- This issue was created/updated automatically by the agent workflow",
         "- Please update the issue with progress and link any related PRs",
         "",
         "---",
@@ -129,20 +121,113 @@ def build_issue_body(payload: Dict[str, Any]) -> Tuple[str, str]:
     return title, body
 
 
+def add_copilot_comment(
+    owner: str,
+    repo: str,
+    issue_number: int,
+    token: str,
+    custom_message: Optional[str] = None
+) -> bool:
+    """Add a comment to trigger Copilot on the issue."""
+    if custom_message:
+        comment_body = custom_message
+    else:
+        comment_body = (
+            "🤖 **Agent Task Assignment**\n\n"
+            "@copilot Please help implement this task. "
+            "Generate a plan with the acceptance criteria above and suggest an implementation approach.\n\n"
+            "Focus on:\n"
+            "- Breaking down the task into manageable steps\n"
+            "- Identifying files that need changes\n"
+            "- Suggesting test cases\n"
+        )
+    
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
+    status, resp = gh_api(url, method="POST", token=token, body={"body": comment_body})
+    
+    return status == 201
+
+
+def update_issue_labels(
+    owner: str,
+    repo: str,
+    issue_number: int,
+    token: str,
+    labels: List[str]
+) -> bool:
+    """Add labels to an existing issue."""
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/labels"
+    status, resp = gh_api(url, method="POST", token=token, body={"labels": labels})
+    
+    return status == 200
+
+
+def update_issue_assignees(
+    owner: str,
+    repo: str,
+    issue_number: int,
+    token: str,
+    assignees: List[str]
+) -> bool:
+    """Add assignees to an existing issue."""
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/assignees"
+    status, resp = gh_api(url, method="POST", token=token, body={"assignees": assignees})
+    
+    return status == 201
+
+
+def update_existing_issue(
+    owner: str,
+    repo: str,
+    issue_number: int,
+    token: str,
+    payload: Dict[str, Any]
+) -> Tuple[bool, Optional[str]]:
+    """Update an existing issue with agent task details."""
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}"
+    status, current_issue = gh_api(url, method="GET", token=token)
+    
+    if status != 200 or not current_issue:
+        return False, None
+    
+    html_url = current_issue.get("html_url")
+    
+    if payload.get("update_body", False):
+        title, body = build_issue_body(payload)
+        update_payload = {"body": body}
+        
+        if payload.get("update_title", False):
+            update_payload["title"] = title
+        
+        status, resp = gh_api(url, method="PATCH", token=token, body=update_payload)
+    
+    labels = payload.get("labels") or ["agent-task", "copilot-ready"]
+    if labels:
+        update_issue_labels(owner, repo, issue_number, token, labels)
+    
+    assignees = payload.get("assignees") or []
+    if assignees:
+        update_issue_assignees(owner, repo, issue_number, token, assignees)
+    
+    if payload.get("mention_copilot", True):
+        copilot_message = payload.get("copilot_message")
+        add_copilot_comment(owner, repo, issue_number, token, copilot_message)
+    
+    return True, html_url
+
+
 def create_github_issue(
     owner: str,
     repo: str,
     token: str,
     payload: Dict[str, Any]
 ) -> Tuple[bool, Optional[int], Optional[str]]:
-    """Create a GitHub issue and return success status, number, and URL."""
+    """Create a new GitHub issue and return success status, number, and URL."""
     title, body = build_issue_body(payload)
     
-    # Get labels and assignees from payload
     labels = payload.get("labels") or ["agent-task", "copilot-ready"]
     assignees = payload.get("assignees") or []
     
-    # Build issue payload
     issue_payload = {
         "title": title,
         "body": body,
@@ -152,13 +237,17 @@ def create_github_issue(
     if assignees:
         issue_payload["assignees"] = assignees
     
-    # Create issue via API
     url = f"https://api.github.com/repos/{owner}/{repo}/issues"
     status, resp = gh_api(url, method="POST", token=token, body=issue_payload)
     
     if status == 201 and resp:
         number = resp.get("number")
         html_url = resp.get("html_url")
+        
+        if payload.get("mention_copilot", True):
+            copilot_message = payload.get("copilot_message")
+            add_copilot_comment(owner, repo, number, token, copilot_message)
+        
         return True, number, html_url
     else:
         return False, None, None
@@ -167,7 +256,7 @@ def create_github_issue(
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Create a GitHub issue from agent task payload"
+        description="Create or update a GitHub issue from agent task payload"
     )
     parser.add_argument(
         "--payload",
@@ -176,45 +265,44 @@ def main() -> int:
     )
     args = parser.parse_args()
     
-    # Load payload
     try:
         with open(args.payload, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except FileNotFoundError:
-        print(f"❌ Payload file not found: {args.payload}", file=sys.stderr)
-        return 1
-    except json.JSONDecodeError as e:
-        print(f"❌ Invalid JSON in payload: {e}", file=sys.stderr)
+    except (FileNotFoundError, json.JSONDecodeError):
         return 1
     
-    # Get environment variables
     gh_repo = os.environ.get("GH_REPO")
     gh_token = os.environ.get("GH_TOKEN")
     
     if not gh_repo or not gh_token:
-        print("❌ Missing GH_REPO or GH_TOKEN environment variables", file=sys.stderr)
         return 1
     
-    # Parse repository
     try:
         owner, repo = gh_repo.split("/", 1)
     except ValueError:
-        print(f"❌ Invalid repository format: {gh_repo}", file=sys.stderr)
         return 1
     
-    # Create issue
-    print(f"🔄 Creating issue in {owner}/{repo}...")
-    success, number, html_url = create_github_issue(owner, repo, gh_token, payload)
+    existing_issue = payload.get("issue_number")
     
-    if success:
-        print(f"✅ Created issue #{number}")
-        print(f"🔗 {html_url}")
-        set_output("issue_number", str(number))
-        set_output("issue_url", html_url)
-        return 0
+    if existing_issue:
+        success, html_url = update_existing_issue(owner, repo, existing_issue, gh_token, payload)
+        if success:
+            set_output("issue_number", str(existing_issue))
+            set_output("issue_url", html_url)
+            set_output("action", "updated")
+            return 0
+        else:
+            return 1
     else:
-        print("❌ Failed to create issue", file=sys.stderr)
-        return 1
+        success, number, html_url = create_github_issue(owner, repo, gh_token, payload)
+        
+        if success:
+            set_output("issue_number", str(number))
+            set_output("issue_url", html_url)
+            set_output("action", "created")
+            return 0
+        else:
+            return 1
 
 
 if __name__ == "__main__":
