@@ -1,0 +1,75 @@
+name: Agent Task Runner
+
+on:
+  repository_dispatch:
+    types: [agent-task]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  run-agent-task:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install agent deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r .github/agent/requirements.txt || true
+
+      - name: Persist payload from workflow.ai
+        run: |
+          mkdir -p .github/agent
+          echo '${{ toJson(github.event.client_payload) }}' > .github/agent/payload.json
+
+      - name: Run agent implementation
+        run: |
+          python .github/agent/implement_task.py --payload .github/agent/payload.json
+
+      - name: Configure git author
+        run: |
+          git config user.name "workflow-ai[bot]"
+          git config user.email "workflow-ai[bot]@users.noreply.github.com"
+
+      - name: Create branch, commit, and push
+        id: commit
+        run: |
+          BRANCH="${{ github.event.client_payload.branch || format('feature/agent-{0}', github.run_id) }}"
+          BASE="${{ github.event.client_payload.base || 'main' }}"
+          git checkout -b "$BRANCH" "origin/$BASE"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            echo "changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          COMMIT_MSG="${{ github.event.client_payload.commit_message || 'Agent: automated change' }}"
+          git commit -m "$COMMIT_MSG"
+          git push origin "$BRANCH"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "base=$BASE" >> $GITHUB_OUTPUT
+          echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Create pull request
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.commit.outputs.branch }}"
+          BASE="${{ steps.commit.outputs.base }}"
+          TITLE="${{ github.event.client_payload.title || 'Agent: Implement task' }}"
+          BODY="${{ github.event.client_payload.summary || 'Automated changes by workflow.ai agent.' }}"
+          # Use gh CLI for convenience (or call REST API with curl)
+          curl -fsSL https://github.com/cli/cli/releases/latest/download/gh_2.63.0_linux_amd64.tar.gz | tar xz
+          ./gh/bin/gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "$BODY"
