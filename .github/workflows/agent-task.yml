@@ -1,4 +1,4 @@
-name: Agent Task: Create Issue
+name: Agent Task - Create Issue
 
 on:
   repository_dispatch:
@@ -12,7 +12,7 @@ jobs:
   create-issue:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (no code change needed, but useful for context later)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -22,17 +22,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install agent deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r .github/agent/requirements.txt || true
+          # Create requirements.txt if it doesn't exist
+          if [ ! -f .github/agent/requirements.txt ]; then
+            echo "No additional dependencies required" > /dev/null
+          else
+            pip install -r .github/agent/requirements.txt
+          fi
 
-      - name: Persist payload
+      - name: Persist payload to file
         run: |
           mkdir -p .github/agent
           echo '${{ toJson(github.event.client_payload) }}' > .github/agent/payload.json
 
-      - name: Create Issue from task
+      - name: Create issue from agent task
         id: issue
         env:
           GH_REPO: ${{ github.repository }}
@@ -40,8 +45,13 @@ jobs:
         run: |
           python .github/agent/create_issue.py --payload .github/agent/payload.json
 
-      - name: Output created issue link
+      - name: Output created issue details
         if: always()
         run: |
-          echo "Issue number: ${{ steps.issue.outputs.issue_number || 'N/A' }}"
-          echo "Issue url:    ${{ steps.issue.outputs.issue_url || 'N/A' }}"
+          if [ -n "${{ steps.issue.outputs.issue_number }}" ]; then
+            echo "✅ Issue created successfully!"
+            echo "Issue #${{ steps.issue.outputs.issue_number }}"
+            echo "URL: ${{ steps.issue.outputs.issue_url }}"
+          else
+            echo "❌ Issue creation failed or was skipped"
+          fi

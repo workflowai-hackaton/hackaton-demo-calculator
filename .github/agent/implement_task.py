@@ -1,28 +1,47 @@
 #!/usr/bin/env python3
+"""
+GitHub Agent: Create Issue from Repository Dispatch Payload
+This script creates a GitHub issue based on agent task details.
+"""
+
 import argparse
 import json
 import os
 import sys
 import urllib.request
 import urllib.error
+from typing import Dict, Any, Tuple, Optional, List
 
-def set_output(name, value):
-    # Emit outputs for the workflow step
+
+def set_output(name: str, value: str) -> None:
+    """Set GitHub Actions output variable."""
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
-        with open(github_output, "a") as f:
+        with open(github_output, "a", encoding="utf-8") as f:
             f.write(f"{name}={value}\n")
+    else:
+        print(f"Output: {name}={value}")
 
-def gh_api(url, method="GET", token=None, body=None):
+
+def gh_api(
+    url: str,
+    method: str = "GET",
+    token: Optional[str] = None,
+    body: Optional[Dict[str, Any]] = None
+) -> Tuple[int, Optional[Dict[str, Any]]]:
+    """Make a GitHub API request using urllib."""
     req = urllib.request.Request(url, method=method)
     req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("X-GitHub-Api-Version", "2022-11-28")
+    
     if token:
         req.add_header("Authorization", f"Bearer {token}")
+    
+    data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         req.add_header("Content-Type", "application/json")
-    else:
-        data = None
+    
     try:
         with urllib.request.urlopen(req, data=data, timeout=60) as resp:
             charset = resp.headers.get_content_charset() or "utf-8"
@@ -30,99 +49,173 @@ def gh_api(url, method="GET", token=None, body=None):
             return resp.getcode(), json.loads(txt) if txt else {}
     except urllib.error.HTTPError as e:
         err_txt = e.read().decode("utf-8", errors="replace")
-        print(f"GitHub API error {e.code}: {err_txt}", file=sys.stderr)
+        print(f"❌ GitHub API error {e.code}: {err_txt}", file=sys.stderr)
         return e.code, None
     except Exception as e:
-        print(f"Request failed: {e}", file=sys.stderr)
+        print(f"❌ Request failed: {e}", file=sys.stderr)
         return 0, None
 
-def build_issue_body(payload):
-    title = payload.get("title") or f"Agent task {payload.get('task_id','')}".strip()
+
+def format_acceptance_criteria(criteria: Any) -> str:
+    """Format acceptance criteria as markdown list."""
+    if isinstance(criteria, list):
+        return "\n".join([f"- {item}" for item in criteria])
+    elif isinstance(criteria, str):
+        return criteria
+    else:
+        return "No acceptance criteria provided."
+
+
+def build_issue_body(payload: Dict[str, Any]) -> Tuple[str, str]:
+    """Build issue title and body from payload."""
+    # Extract main fields
+    task_id = payload.get("task_id", "N/A")
+    title = payload.get("title") or f"Agent Task {task_id}".strip()
     summary = payload.get("summary") or "No summary provided."
     acceptance = payload.get("acceptance_criteria") or "No acceptance criteria provided."
     base = payload.get("base") or "main"
     focus_paths = payload.get("focus_paths") or []
     stack_hint = payload.get("stack_hint") or ""
     extra = payload.get("extra") or {}
-
-    lines = []
-    lines.append(f"Task ID: {payload.get('task_id', 'N/A')}")
-    lines.append("")
-    lines.append("Summary")
-    lines.append("-------")
-    lines.append(summary)
-    lines.append("")
-    lines.append("Acceptance criteria")
-    lines.append("-------------------")
-    if isinstance(acceptance, list):
-        lines.extend([f"- {item}" for item in acceptance])
-    else:
-        lines.append(acceptance)
-    lines.append("")
-    lines.append("Context")
-    lines.append("-------")
-    lines.append(f"- Base branch: `{base}`")
+    
+    # Build body sections
+    lines = [
+        f"**Task ID:** `{task_id}`",
+        "",
+        "## 📋 Summary",
+        summary,
+        "",
+        "## ✅ Acceptance Criteria",
+        format_acceptance_criteria(acceptance),
+        "",
+        "## 🔍 Context",
+        f"- **Base branch:** `{base}`"
+    ]
+    
     if focus_paths:
-        lines.append(f"- Focus paths: {', '.join(focus_paths)}")
+        paths_str = ", ".join([f"`{p}`" for p in focus_paths])
+        lines.append(f"- **Focus paths:** {paths_str}")
+    
     if stack_hint:
-        lines.append(f"- Stack hint: {stack_hint}")
+        lines.append(f"- **Stack hint:** {stack_hint}")
+    
     if "related_issues" in extra:
-        lines.append(f"- Related issues: {extra['related_issues']}")
+        lines.append(f"- **Related issues:** {extra['related_issues']}")
+    
     if "links" in extra:
-        lines.append(f"- Links: {extra['links']}")
-    lines.append("")
-    lines.append("How to proceed")
-    lines.append("--------------")
-    lines.append("- Use Copilot Workspace from this issue (if enabled) to generate a plan and open a PR; or")
-    lines.append('- Use Copilot Chat: ask "Plan and implement this task with tests" and iterate.')
-    lines.append("")
-    lines.append("Notes")
-    lines.append("-----")
-    lines.append("This issue was created automatically by workflow.ai.")
+        lines.append(f"- **Links:** {extra['links']}")
+    
+    # Add additional context from extra
+    for key, value in extra.items():
+        if key not in ["related_issues", "links"]:
+            lines.append(f"- **{key.replace('_', ' ').title()}:** {value}")
+    
+    lines.extend([
+        "",
+        "## 🚀 How to Proceed",
+        "1. **GitHub Copilot Workspace:** Use Copilot Workspace from this issue to generate a plan and open a PR",
+        "2. **GitHub Copilot Chat:** Ask *\"Plan and implement this task with tests\"* and iterate",
+        "3. **Manual Implementation:** Review the requirements and create a PR with your changes",
+        "",
+        "## 📝 Notes",
+        "- This issue was created automatically by the agent workflow",
+        "- Please update the issue with progress and link any related PRs",
+        "",
+        "---",
+        "*Generated by GitHub Agent* 🤖"
+    ])
+    
     body = "\n".join(lines)
     return title, body
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--payload", required=True)
-    args = parser.parse_args()
 
-    with open(args.payload, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-
-    gh_repo = os.environ.get("GH_REPO")
-    gh_token = os.environ.get("GH_TOKEN")
-    if not gh_repo or not gh_token:
-        print("Missing GH_REPO or GH_TOKEN env vars.", file=sys.stderr)
-        sys.exit(1)
-
-    owner, repo = gh_repo.split("/", 1)
+def create_github_issue(
+    owner: str,
+    repo: str,
+    token: str,
+    payload: Dict[str, Any]
+) -> Tuple[bool, Optional[int], Optional[str]]:
+    """Create a GitHub issue and return success status, number, and URL."""
     title, body = build_issue_body(payload)
-
-    # Labels/assignees are optional in payload
+    
+    # Get labels and assignees from payload
     labels = payload.get("labels") or ["agent-task", "copilot-ready"]
-    assignees = payload.get("assignees") or []  # usernames list
-
+    assignees = payload.get("assignees") or []
+    
+    # Build issue payload
     issue_payload = {
         "title": title,
         "body": body,
         "labels": labels
     }
+    
     if assignees:
         issue_payload["assignees"] = assignees
-
+    
+    # Create issue via API
     url = f"https://api.github.com/repos/{owner}/{repo}/issues"
-    status, resp = gh_api(url, method="POST", token=gh_token, body=issue_payload)
+    status, resp = gh_api(url, method="POST", token=token, body=issue_payload)
+    
     if status == 201 and resp:
         number = resp.get("number")
         html_url = resp.get("html_url")
-        print(f"Created issue #{number}: {html_url}")
+        return True, number, html_url
+    else:
+        return False, None, None
+
+
+def main() -> int:
+    """Main entry point."""
+    parser = argparse.ArgumentParser(
+        description="Create a GitHub issue from agent task payload"
+    )
+    parser.add_argument(
+        "--payload",
+        required=True,
+        help="Path to JSON payload file"
+    )
+    args = parser.parse_args()
+    
+    # Load payload
+    try:
+        with open(args.payload, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except FileNotFoundError:
+        print(f"❌ Payload file not found: {args.payload}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as e:
+        print(f"❌ Invalid JSON in payload: {e}", file=sys.stderr)
+        return 1
+    
+    # Get environment variables
+    gh_repo = os.environ.get("GH_REPO")
+    gh_token = os.environ.get("GH_TOKEN")
+    
+    if not gh_repo or not gh_token:
+        print("❌ Missing GH_REPO or GH_TOKEN environment variables", file=sys.stderr)
+        return 1
+    
+    # Parse repository
+    try:
+        owner, repo = gh_repo.split("/", 1)
+    except ValueError:
+        print(f"❌ Invalid repository format: {gh_repo}", file=sys.stderr)
+        return 1
+    
+    # Create issue
+    print(f"🔄 Creating issue in {owner}/{repo}...")
+    success, number, html_url = create_github_issue(owner, repo, gh_token, payload)
+    
+    if success:
+        print(f"✅ Created issue #{number}")
+        print(f"🔗 {html_url}")
         set_output("issue_number", str(number))
         set_output("issue_url", html_url)
-        sys.exit(0)
+        return 0
     else:
-        print(f"Failed to create issue. Status={status}", file=sys.stderr)
-        sys.exit(1)
+        print("❌ Failed to create issue", file=sys.stderr)
+        return 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
