@@ -5,7 +5,7 @@ import { useState } from 'react';
 export default function Calculator() {
     const [display, setDisplay] = useState('0');
     const [previousValue, setPreviousValue] = useState<number | null>(null);
-    const [operation, setOperation] = useState<'+' | '-' | null>(null);
+    const [operation, setOperation] = useState<'-' | null>(null);
     const [waitingForOperand, setWaitingForOperand] = useState(false);
 
     const handleNumberClick = (num: string) => {
@@ -17,7 +17,7 @@ export default function Calculator() {
         }
     };
 
-    const handleOperationClick = (op: '+' | '-') => {
+    const handleOperationClick = (op: '-') => {
         const currentValue = parseFloat(display);
 
         if (previousValue === null) {
@@ -32,10 +32,8 @@ export default function Calculator() {
         setWaitingForOperand(true);
     };
 
-    const performCalculation = (prev: number, current: number, op: '+' | '-'): number => {
+    const performCalculation = (prev: number, current: number, op: '-'): number => {
         switch (op) {
-            case '+':
-                return prev + current;
             case '-':
                 return prev - current;
             default:
@@ -73,17 +71,9 @@ export default function Calculator() {
                 {/* Clear button */}
                 <button
                     onClick={handleClear}
-                    className="col-span-2 bg-red-500 hover:bg-red-600 text-white text-xl font-semibold py-4 rounded-lg transition-colors"
+                    className="col-span-3 bg-red-500 hover:bg-red-600 text-white text-xl font-semibold py-4 rounded-lg transition-colors"
                 >
                     C
-                </button>
-
-                {/* Plus button */}
-                <button
-                    onClick={() => handleOperationClick('+')}
-                    className="bg-orange-500 hover:bg-orange-600 text-white text-2xl font-semibold py-4 rounded-lg transition-colors"
-                >
-                    +
                 </button>
 
                 {/* Minus button */}
