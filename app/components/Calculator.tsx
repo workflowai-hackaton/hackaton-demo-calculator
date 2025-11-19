@@ -5,7 +5,7 @@ import { useState } from 'react';
 export default function Calculator() {
     const [display, setDisplay] = useState('0');
     const [previousValue, setPreviousValue] = useState<number | null>(null);
-    const [operation, setOperation] = useState<'-' | null>(null);
+    const [operation, setOperation] = useState<'-' | '+' | null>(null);
     const [waitingForOperand, setWaitingForOperand] = useState(false);
 
     const handleNumberClick = (num: string) => {
@@ -17,7 +17,7 @@ export default function Calculator() {
         }
     };
 
-    const handleOperationClick = (op: '-') => {
+    const handleOperationClick = (op: '-' | '+') => {
         const currentValue = parseFloat(display);
 
         if (previousValue === null) {
@@ -32,10 +32,12 @@ export default function Calculator() {
         setWaitingForOperand(true);
     };
 
-    const performCalculation = (prev: number, current: number, op: '-'): number => {
+    const performCalculation = (prev: number, current: number, op: '-' | '+'): number => {
         switch (op) {
             case '-':
                 return prev - current;
+            case '+':
+                return prev + current;
             default:
                 return current;
         }
@@ -95,8 +97,13 @@ export default function Calculator() {
                     </button>
                 ))}
 
-                {/* Placeholder for grid alignment */}
-                <div></div>
+                {/* Plus button */}
+                <button
+                    onClick={() => handleOperationClick('+')}
+                    className="bg-orange-500 hover:bg-orange-600 text-white text-2xl font-semibold py-4 rounded-lg transition-colors"
+                >
+                    +
+                </button>
 
                 {/* Number buttons 4-6 */}
                 {[4, 5, 6].map((num) => (
