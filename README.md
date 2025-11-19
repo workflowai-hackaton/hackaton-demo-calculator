@@ -5,7 +5,10 @@ A simple and elegant calculator built with Next.js, TypeScript, and Tailwind CSS
 ## Features
 
 - **Number Input**: Buttons for digits 0-9
-- **Basic Operations**: Addition (+) and subtraction (-)
+- **Multiple Operations**: Addition (+), subtraction (-), multiplication (×), and division (÷)
+- **Order of Operations**: Follows standard PEMDAS/BODMAS rules (multiplication and division before addition and subtraction)
+- **Parentheses Support**: Use parentheses to group operations and control calculation order
+- **Expression Chaining**: Chain multiple operations together for complex calculations
 - **Clear Function**: Reset the calculator to start fresh
 - **Modern UI**: Beautiful gradient background with a sleek dark-themed calculator
 - **Responsive Design**: Works seamlessly on desktop and mobile devices
@@ -47,10 +50,17 @@ npm run dev
 ## Usage
 
 1. Click number buttons (0-9) to input numbers
-2. Click the `+` or `-` button to select an operation
-3. Click more numbers to input the second operand
-4. Click `=` to see the result
-5. Click `C` to clear and start over
+2. Click operation buttons (`+`, `-`, `×`, `÷`) to add operations
+3. Use `(` and `)` buttons to group operations with parentheses
+4. Chain multiple operations together (e.g., `2+3×4` will correctly calculate as 14)
+5. Click `=` to evaluate the expression and see the result
+6. Click `C` to clear and start over
+
+### Examples:
+- Simple: `5 + 3 = 8`
+- Order of operations: `2 + 3 × 4 = 14` (multiplication first)
+- With parentheses: `(2 + 3) × 4 = 20` (parentheses first)
+- Complex: `(10 + 5) ÷ 3 - 2 = 3`
 
 ## Project Structure
 
