@@ -220,7 +220,7 @@ def update_existing_issue(
         if not update_issue_labels(owner, repo, issue_number, token, labels):
             log_error(f"Failed to add labels to issue #{issue_number}")
     
-    assignees = payload.get("assignees") or []
+    assignees = payload.get("assignees") or ["Copilot"]
     if assignees:
         if not update_issue_assignees(owner, repo, issue_number, token, assignees):
             log_error(f"Failed to add assignees to issue #{issue_number}")
@@ -243,7 +243,7 @@ def create_github_issue(
     title, body = build_issue_body(payload)
     
     labels = payload.get("labels") or ["agent-task", "copilot-ready"]
-    assignees = payload.get("assignees") or []
+    assignees = payload.get("assignees") or ["Copilot"]
     
     issue_payload = {
         "title": title,
