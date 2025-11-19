@@ -17,6 +17,15 @@ export default function Calculator() {
         }
     };
 
+    const handleDecimalClick = () => {
+        if (waitingForOperand) {
+            setDisplay('0.');
+            setWaitingForOperand(false);
+        } else if (display.indexOf('.') === -1) {
+            setDisplay(display + '.');
+        }
+    };
+
     const handleOperationClick = (op: '+' | '-') => {
         const currentValue = parseFloat(display);
 
@@ -136,12 +145,20 @@ export default function Calculator() {
                 {/* Placeholder for grid alignment */}
                 <div></div>
 
-                {/* Number 0 button - spans 2 columns */}
+                {/* Number 0 button */}
                 <button
                     onClick={() => handleNumberClick('0')}
-                    className="col-span-2 bg-gray-600 hover:bg-gray-700 text-white text-2xl font-semibold py-4 rounded-lg transition-colors"
+                    className="bg-gray-600 hover:bg-gray-700 text-white text-2xl font-semibold py-4 rounded-lg transition-colors"
                 >
                     0
+                </button>
+
+                {/* Decimal point button */}
+                <button
+                    onClick={handleDecimalClick}
+                    className="bg-gray-600 hover:bg-gray-700 text-white text-2xl font-semibold py-4 rounded-lg transition-colors"
+                >
+                    .
                 </button>
 
                 {/* Equals button */}
